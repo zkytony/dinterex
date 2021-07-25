@@ -3,3 +3,5 @@
 __pycache__/
 
 
+affordance_seg/cv/
+interaction_exploration/cv/

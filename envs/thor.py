@@ -122,6 +122,7 @@ class ThorEnv(gym.Env):
 
         if action_info['params'] is not None:
             self.controller.step(action_info['params'])
+            self.controller.step(action="Pass")
             action_info['success'] = self.state.metadata['lastActionSuccess']
 
         # if it's a movement action, double check that you're still on the grid
@@ -129,7 +130,7 @@ class ThorEnv(gym.Env):
             x, y, z, rot, hor = self.agent_pose(self.state)
             if (x, y, z) not in self.reachable_positions:
                 gpos = min(self.reachable_positions, key=lambda p: (p[0]-x)**2 + (p[2]-z)**2)
-                self.controller.step(dict(action='TeleportFull', x=gpos[0], y=gpos[1], z=gpos[2], rotation=rot, horizon=hor))
+                self.controller.step(dict(action='TeleportFull', x=gpos[0], y=gpos[1], z=gpos[2], rotation=rot, horizon=hor, standing=True))
 
         return action_info
 
@@ -160,7 +161,7 @@ class ThorEnv(gym.Env):
         self.controller.step(dict(action='GetReachablePositions'))
         self.reachable_positions = set([(pos['x'], pos['y'], pos['z']) for pos in self.state.metadata['reachablePositions']])
 
-        self.controller.step(dict(action='TeleportFull', x=0, y=0.9009991, z=2.25, rotation=180, horizon=0))
+        self.controller.step(dict(action='TeleportFull', x=0, y=0.9009991, z=2.25, rotation=180, horizon=0, standing=True))
         self.episode_id = 0
         return
 
@@ -169,36 +170,36 @@ class ThorEnv(gym.Env):
                         randomSeed=self.episode_id,
                         forceVisible=False,
                         numPlacementAttempts=5))
-                    
+
 
     def init_scene_and_agent(self, scene, episode=None):
 
         if self.config.DEBUG == True:
             self.init_scene_and_agent_debug()
-            return 
+            return
 
         self.scene = scene
         self.episode_id = episode or self.rs.randint(1000000000)
-        
-        self.controller.reset(self.scene) 
+
+        self.controller.reset(self.scene)
         self.controller.step(dict(action='Initialize', **self.init_params()))
 
         self.randomize_objects()
 
         self.controller.step(dict(action='GetReachablePositions'))
         reachable_positions = [(pos['x'], pos['y'], pos['z']) for pos in self.state.metadata['reachablePositions']]
-        
+
         init_rs = np.random.RandomState(self.episode_id)
         rot = init_rs.choice([i*self.rot_size_y for i in range(360//self.rot_size_y)])
         pos = reachable_positions[init_rs.randint(len(reachable_positions))]
         self.controller.step(dict(action='TeleportFull', x=pos[0], y=pos[1], z=pos[2], rotation=rot, horizon=0))
-        
+
         self.reachable_positions = set(reachable_positions)
 
     def init_environment(self):
 
         scene, episode = None, None
-        
+
         if self.config.MODE == 'train':
             scene = self.rs.choice(['FloorPlan%d'%idx for idx in range(6, 30+1)]) # 6 --> 30 = train. 1 --> 5 = test
 
@@ -207,14 +208,14 @@ class ThorEnv(gym.Env):
                 self.test_episodes = iter(self.config.ENV.TEST_EPISODES)
             scene, episode = next(self.test_episodes)
             print ('INIT: %s episode %s'%(scene, episode))
-        
+
         self.init_scene_and_agent(scene=scene, episode=episode)
 
         # store all reachable x, z for snapping to grid
         self.reachable_x = list(set([pos[0] for pos in self.reachable_positions]))
         self.reachable_z = list(set([pos[2] for pos in self.reachable_positions]))
 
-        # assert self.state.frame.sum()==0, "ERR: Image frames are being rendered incorrectly"  
+        # assert self.state.frame.sum()==0, "ERR: Image frames are being rendered incorrectly"
 
     # to keep track of fixed test set stats
     @property
@@ -245,7 +246,7 @@ class ThorObjs(ThorEnv):
 
         self.N = self.config.ENV.NGRID # 5x5 grid, center = active
         self.center = ((self.frame_sz//self.N)*(self.N//2), (self.frame_sz//self.N)*(self.N+1)//2)
-        self.center_grid = np.array([[self.center[0], self.center[0], self.center[1], self.center[1]]]) # xyxy 
+        self.center_grid = np.array([[self.center[0], self.center[0], self.center[1], self.center[1]]]) # xyxy
 
     def get_action_fns(self):
         actions, action_fns = super().get_action_fns()
@@ -286,9 +287,9 @@ class ThorObjs(ThorEnv):
         S = active_px.shape[0]
         instance_counter = collections.defaultdict(list)
         for i, j in itertools.product(range(S), range(S)):
-            color = tuple(active_px[i, j])    
+            color = tuple(active_px[i, j])
             if color not in color_to_objId or color_to_objId[color] not in objId_to_obj:
-                continue            
+                continue
             instance_counter[color].append(np.abs(i-S//2) + np.abs(j-S//2))
         instance_counter = [{'color':color, 'N':len(scores), 'objectId':color_to_objId[color], 'dist':np.mean(scores), 'p1':len(scores)/S**2, 'p2':len(scores)/color_to_count[color]} for color, scores in instance_counter.items()]
 
@@ -296,7 +297,7 @@ class ThorObjs(ThorEnv):
         all_targets = [inst for inst in instance_counter if inst['p1']>overlap_thresh or inst['p2']>overlap_thresh]
         all_targets = sorted(all_targets, key=lambda x: x['dist'])
         act_targets = [candidate for candidate in all_targets if obj_property(objId_to_obj[candidate['objectId']])]
-        
+
         targets = {'objectId':None, 'obj':None, 'center_objectId':None, 'center_obj':None, 'int_target':None}
         if len(all_targets)>0:
             objId = all_targets[0]['objectId']
@@ -345,7 +346,7 @@ class ThorObjs(ThorEnv):
         act_params = None
         if target_obj['objectId'] is not None:
             act_params = dict(action='OpenObject', objectId=target_obj['objectId'])
-            
+
         act_info = {'target':target_obj, 'params':act_params}
 
         return act_info
@@ -358,7 +359,7 @@ class ThorObjs(ThorEnv):
         act_params = None
         if target_obj['objectId'] is not None:
             act_params = dict(action='CloseObject', objectId=target_obj['objectId'])
-            
+
         act_info = {'target':target_obj, 'params':act_params}
 
         return act_info
@@ -371,7 +372,7 @@ class ThorObjs(ThorEnv):
         act_params = None
         if target_obj['objectId'] is not None:
             act_params = dict(action='ToggleObjectOn', objectId=target_obj['objectId'])
-            
+
         act_info = {'target':target_obj, 'params':act_params}
 
         return act_info
@@ -384,7 +385,7 @@ class ThorObjs(ThorEnv):
         act_params = None
         if target_obj['objectId'] is not None:
             act_params = dict(action='ToggleObjectOff', objectId=target_obj['objectId'])
-            
+
         act_info = {'target':target_obj, 'params':act_params}
 
         return act_info
@@ -401,7 +402,7 @@ class ThorObjs(ThorEnv):
         act_params = None
         if target_obj['objectId'] is not None and holding_knife:
             act_params = dict(action='SliceObject', objectId=target_obj['objectId'])
-            
+
         act_info = {'target':target_obj, 'params':act_params}
 
         return act_info
@@ -444,7 +445,7 @@ class ThorInteractionCycler(ThorInteractionCount):
     def step(self, action, **kwargs):
 
         if self.phase=='move':
-              
+
             self.nav_iter += 1
             if self.nav_iter == self.max_nav_iter:
                 self.phase = 'interact'
@@ -454,7 +455,7 @@ class ThorInteractionCycler(ThorInteractionCount):
 
             act_str = self.interaction_queue.pop(0)
             action['action'] = self.actions.index(act_str)
-                        
+
             if len(self.interaction_queue)==0:
                 self.phase = 'move'
                 self.nav_iter = 0
@@ -464,7 +465,7 @@ class ThorInteractionCycler(ThorInteractionCount):
     def reset(self):
         obs = super().reset()
         self.interaction_queue = []
-        self.phase = 'move'    
+        self.phase = 'move'
         self.nav_iter = 0
         return obs
 
@@ -477,7 +478,7 @@ class ThorInteractionCyclerFixedView(ThorInteractionCycler):
 
     def reset(self):
         super().reset()
-        _, _, _, rot, hor = self.agent_pose(self.state) 
+        _, _, _, rot, hor = self.agent_pose(self.state)
         self.controller.step(dict(action='RotateLook', rotation=rot, horizon=30))
         obs = self.get_observation(self.state)
         return obs
@@ -511,8 +512,8 @@ class ThorObjectCoverage(ThorObjs):
 
     # Find target object in center of the screen
     def get_reward(self, observations):
-        reward = 0    
-        target = self.get_target_obj(lambda obj: False) 
+        reward = 0
+        target = self.get_target_obj(lambda obj: False)
         if target['int_target']=='center_obj' and self.seen[target['center_objectId']] == 0:
             self.seen[target['center_objectId']] += 1
             reward += 1
@@ -522,4 +523,3 @@ class ThorObjectCoverage(ThorObjs):
         obs = super().reset()
         self.seen = collections.defaultdict(int)
         return obs
-

@@ -1,3 +1,4 @@
+## Original repository: https://github.com/facebookresearch/interaction-exploration
 # Learning Affordance Landscapes for Interaction Exploration in 3D Environments
 
 ![Teaser](http://vision.cs.utexas.edu/projects/interaction-exploration/media/concept.png)

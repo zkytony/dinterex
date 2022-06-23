@@ -1,7 +1,7 @@
-# Integrating MJOLNIR into COS-POMDP codebase
+# Integrating Interactive Exploration into COS-POMDP codebase
 
 
-Using the virtualenv of cos-pomdp, set up this code of MJLONIR.
+Using the virtualenv of cos-pomdp, set up this code of interactive exploration.
 
 1. Activate the cosp virtualenv
 
